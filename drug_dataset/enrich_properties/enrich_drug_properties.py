@@ -8,6 +8,9 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors, Crippen
 import joblib
 
+from tdc.single_pred import ADME
+cacao_data = ADME(name='Caco2_Wang')
+
 # --- CONFIG ---
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
@@ -23,6 +26,20 @@ permeability_model = joblib.load("models/permeability_rf.joblib")
 # --- Connect to PostgreSQL ---
 conn_str = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(conn_str)
+
+
+def get_cacao_permeability(df, cacao):
+    """Fetch permeability from CACAO database (placeholder function)."""
+    # ## add all permeability data to df 
+    ## 'Drug' column in cacao == 'smiles' column in df, smiles might overlap, or might nowt be present at all
+
+    cacao = cacao.rename(columns={"Drug": "smiles", "Y": "cacao_permeability"})
+
+    # Merge on 'smiles' — keep all molecules from df
+    merged = df.merge(cacao[["smiles", "cacao_permeability"]], on="smiles", how="left")
+
+
+    return merged
 
 
 # --- RDKit-based calculations ---
@@ -67,6 +84,14 @@ def enrich_dataframe(df):
 
     df = df.dropna(subset=["smiles"]).copy()
     df = df[df["smiles"].apply(lambda s: isinstance(s, str) and len(s.strip()) > 0)]
+
+
+    ## Get the caco permeability data from cacao and merge into df
+    cacao = cacao_data.get_data()
+    print(cacao.head())
+    print(len(df))
+    df = get_cacao_permeability(df, cacao)
+    print(len(df))
     
     enriched = []
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Enriching molecules"):
@@ -86,10 +111,13 @@ def enrich_dataframe(df):
             hbd,
             hba,
             Descriptors.NumRotatableBonds(mol)
-    ]
-        permeability = float(permeability_model.predict([desc])[0])
+        ]
+        
+        ## Include permeability model prediction AND direct predictions from CACAO when available (NA if othterwise)
+        #permeability = get_cacao_permeability(df, cacao)
+        permeability_predictions = float(permeability_model.predict([desc])[0])
+        row["predicted_permeability"] = permeability_predictions
 
-        row["permeability"] = permeability
         row["hba"]  = hba
         row["hbd"]  = hbd
         row["psa"]  = psa
@@ -159,6 +187,9 @@ if __name__ == "__main__":
 
     print("🔬 Enriching data...")
     enriched_df = enrich_dataframe(df)
+
+    print(enriched_df.keys())
+
 
     print("💾 Saving to database...")
     save_to_postgres(enriched_df)
