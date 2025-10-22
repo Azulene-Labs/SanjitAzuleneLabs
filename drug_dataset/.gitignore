@@ -1,4 +1,5 @@
 AqSol/AqSol.csv
+*.joblib
 *.tab
 *.csv
 *.ipynb_checkpoints/
