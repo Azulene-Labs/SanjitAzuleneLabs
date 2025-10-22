@@ -1,4 +1,5 @@
 AqSol/AqSol.csv
+*.tab
 *.csv
 *.ipynb_checkpoints/
 __pycache__/

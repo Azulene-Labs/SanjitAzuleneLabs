@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine, text
 from tqdm import tqdm
 from rdkit import Chem
@@ -9,6 +10,10 @@ from rdkit.Chem import Descriptors, Crippen
 import joblib
 
 from tdc.single_pred import ADME
+from tdc.multi_pred import DTI
+
+# Then, access the specific BindingDB dataset by name
+bindingdb_data = DTI(name='BindingDB_Kd')  # For datasets with Kd units
 cacao_data = ADME(name='Caco2_Wang')
 
 # --- CONFIG ---
@@ -21,6 +26,7 @@ DB_PORT = os.getenv("DB_PORT", 5432)
 BATCH_SIZE = 1000
 
 permeability_model = joblib.load("models/permeability_rf.joblib")
+bindingfreeenergy_model = joblib.load("models/binding_free_energy_rf.joblib")
 
 
 # --- Connect to PostgreSQL ---
@@ -33,11 +39,26 @@ def get_cacao_permeability(df, cacao):
     # ## add all permeability data to df 
     ## 'Drug' column in cacao == 'smiles' column in df, smiles might overlap, or might nowt be present at all
 
+    cacao = cacao.get_data()
+
     cacao = cacao.rename(columns={"Drug": "smiles", "Y": "cacao_permeability"})
 
     # Merge on 'smiles' — keep all molecules from df
     merged = df.merge(cacao[["smiles", "cacao_permeability"]], on="smiles", how="left")
 
+
+    return merged
+
+def get_binding_db_bfe(df, bindingdb_data):
+    """Fetch binding free energy from BindingDB dataset via TDC."""
+    binding_db = bindingdb_data.get_data()
+    R = 1.987e-3  # kcal/mol·K
+    T = 298
+    binding_db['binding_db_bfe'] = R * T * np.log(binding_db['Y'] * 1e-9)  # Kd (nM → M)
+    binding_db.rename(columns={"Drug": "smiles"}, inplace=True)
+
+    # Merge on 'smiles' — keep all molecules from df
+    merged = df.merge(binding_db[['smiles', 'binding_db_bfe']], left_on='smiles', right_on='smiles', how='left', suffixes=('', '_tdc'))
 
     return merged
 
@@ -93,12 +114,8 @@ def enrich_dataframe(df):
     df = df.dropna(subset=["smiles"]).copy()
     df = df[df["smiles"].apply(lambda s: isinstance(s, str) and len(s.strip()) > 0)]
 
-
-    ## Get the caco permeability data from cacao and merge into df
-    cacao = cacao_data.get_data()
-    print(cacao.head())
-    print(len(df))
-    df = get_cacao_permeability(df, cacao)
+    df = get_cacao_permeability(df, cacao_data)
+    df = get_binding_db_bfe(df, bindingdb_data)
     print(len(df))
     
     enriched = []
@@ -147,8 +164,8 @@ def enrich_dataframe(df):
                 data_origin["logp"] = "rdkit"
             if pd.isna(row.get("binding_free_energy")):
                 # (placeholder example)
-                row["binding_free_energy"] = -0.1 * rdkit_features["logp_rdkit"]
-                data_origin["binding_free_energy"] = "estimated_rdkit"
+                row["binding_free_energy"] = float(bindingfreeenergy_model.predict([desc])[0])
+                data_origin["binding_free_energy"] = "bindingdb_estimate"
 
         # --- PubChem fallback ---
         if pd.isna(row.get("logp")):
@@ -190,7 +207,7 @@ def save_to_postgres(df):
 # --- Main workflow ---
 if __name__ == "__main__":
     print("🚀 Loading data from database...")
-    df = fetch_data(limit=5000)  # adjust for testing
+    df = fetch_data()  # adjust for testing
     print(f"Loaded {len(df)} molecules.")
 
     print("🔬 Enriching data...")

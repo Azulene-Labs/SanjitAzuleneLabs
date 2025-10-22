@@ -51,7 +51,7 @@ model.fit(X_train, y_train)
 
 # 📊 Evaluate
 preds = model.predict(X_test)
-print(f"R² = {r2_score(y_test, preds):.3f}")
+print(f"R² = {r2_score(y_test, preds):.3f}") ## 0.68 -- pretty good!
 print(f"MAE = {mean_absolute_error(y_test, preds):.3f}")
 
 # 💾 Save model
