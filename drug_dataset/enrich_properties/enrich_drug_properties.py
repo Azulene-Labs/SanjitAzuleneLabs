@@ -79,6 +79,14 @@ def fetch_data(limit=None):
     return pd.read_sql(query, engine)
 
 
+def fetch_data_enriched(limit=None):
+    """Fetch data from PostgreSQL table."""
+    query = "SELECT * FROM drug_properties_enriched"
+    if limit:
+        query += f" LIMIT {limit}"
+    return pd.read_sql(query, engine)
+
+
 # --- Enrichment Pipeline ---
 def enrich_dataframe(df):
 
