@@ -3,4 +3,5 @@ AqSol/AqSol.csv
 *.csv
 *.ipynb_checkpoints/
 __pycache__/
-drug_dataset/models/*.joblib
+*.joblib
+models/*
