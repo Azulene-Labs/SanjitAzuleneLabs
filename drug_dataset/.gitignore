@@ -5,3 +5,4 @@ AqSol/AqSol.csv
 __pycache__/
 *.joblib
 models/*
+*.sdf
